@@ -247,8 +247,46 @@ div[class*="st-key-navlogin_"] .stButton>button{{background:var(--primary-dark)!
 .empty-state{{background:var(--surface);border:1.5px dashed var(--border);border-radius:var(--radius-lg);padding:40px 20px;text-align:center;color:var(--muted);font-weight:600;}}
 .empty-state .icon{{font-size:34px;margin-bottom:8px;}}
 
-@media(max-width:1200px){{.nav{{gap:16px}}.brand,.top-actions{{min-width:180px}}.hero-stats{{min-width:320px}}.nav a{{font-size:12.5px;}}.hero-copy h1{{font-size:27px;}}.page-hero h1{{font-size:38px!important;}}}}
-@media(max-width:850px){{.topbar{{height:auto;flex-wrap:wrap;padding:12px}}.brand,.top-actions{{min-width:100%;justify-content:center}}.nav{{order:3;overflow:auto;justify-content:flex-start;gap:22px;height:54px}}.hero{{height:auto;min-height:220px}}.hero-inner{{flex-direction:column;align-items:stretch;padding:16px}}.hero-stats{{width:100%;min-width:0}}.hero-copy{{text-align:center;}}.contact-grid{{grid-template-columns:1fr;}}}}
+@media(max-width:1200px){{.hero-copy h1{{font-size:27px;}}.page-hero h1{{font-size:38px!important;}}}}
+
+/* ---------------- Mobile (phones/small tablets) ---------------- */
+@media(max-width:850px){{
+  .block-container{{padding:.5rem .6rem 2rem!important;}}
+  .hero{{height:auto;min-height:190px}}
+  .hero-inner{{flex-direction:column;align-items:stretch;padding:14px;gap:14px;}}
+  .hero-copy h1{{font-size:22px;}}
+  .hero-copy p{{font-size:12.5px;}}
+  .hero-stats{{width:100%;min-width:0;}}
+  .hero-stat{{padding:10px 8px;min-width:0;}}
+  .hero-stat b{{font-size:16px;}}
+  .contact-grid{{grid-template-columns:1fr;}}
+  .stats{{grid-template-columns:repeat(2,1fr);}}
+  .page-hero{{height:auto;min-height:170px;padding:10px;}}
+  .page-hero h1{{font-size:26px!important;}}
+  .page-hero p{{font-size:13px!important;}}
+  .info-card{{padding:18px;}}
+  .info-card h1{{font-size:24px;}}
+
+  /* Top nav: keep it one compact scrollable row instead of Streamlit's
+     default stacking (which would turn 8 columns into 8 tall full-width
+     buttons). */
+  div[class*="st-key-topbar_wrap"]{{padding:8px 10px;}}
+  div[class*="st-key-topbar_wrap"] [data-testid="stHorizontalBlock"]{{flex-wrap:nowrap!important;overflow-x:auto;gap:6px!important;-webkit-overflow-scrolling:touch;}}
+  div[class*="st-key-topbar_wrap"] [data-testid="column"]{{min-width:max-content!important;width:auto!important;flex:0 0 auto!important;}}
+  .brand-logo{{width:52px!important;height:52px!important;border-radius:12px!important;}}
+  .brand-mark{{width:44px!important;height:44px!important;font-size:20px!important;}}
+  .brand-title{{font-size:18px!important;}}
+  .brand-sub{{display:none;}}
+  div[class*="st-key-nav_"] .stButton>button,div[class*="st-key-navactive_"] .stButton>button{{font-size:12px!important;padding:0 9px!important;min-height:34px!important;white-space:nowrap;}}
+  div[class*="st-key-navcta_"] .stButton>button,div[class*="st-key-navlogin_"] .stButton>button{{font-size:11px!important;padding:0 10px!important;min-height:34px!important;white-space:nowrap;}}
+}}
+@media(max-width:480px){{
+  .brand-title{{font-size:16px!important;}}
+  .price{{font-size:18px;}}
+  .detail-price{{font-size:26px;}}
+  .detail-title{{font-size:19px;}}
+  .thumb{{flex:0 0 100px;width:100px;height:74px;}}
+}}
 </style>
 """,
     unsafe_allow_html=True,
@@ -589,7 +627,7 @@ except TypeError:
 with _topbar_ctx:
     b_col, n1, n2, n3, n4, spacer, a1, a2 = st.columns([2.9, 0.85, 1.05, 1.05, 1.05, 1.1, 1.15, 1.25])
     with b_col:
-        st.markdown(f'<div class="brand">{logo_html()}<div><div class="brand-title">مستكشف</div><div class="brand-sub">اكتشف العقارات  بسهولة وذكاء</div></div></div>', unsafe_allow_html=True)
+        st.markdown(f'<div class="brand">{logo_html()}<div><div class="brand-title">مستكشف</div><div class="brand-sub">اكتشف عقارات • بسهولة وذكاء</div></div></div>', unsafe_allow_html=True)
     nav_items = [
         (n1, "home", "الرئيسية"),
         (n2, "favorites", f"المفضلة {len(st.session_state.favorites) if st.session_state.favorites else ''}".strip()),
