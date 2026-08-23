@@ -359,9 +359,12 @@ def _is_excluded(name: str) -> bool:
     return any(x in n for x in ("logo", "hero", "riyadh", "skyline"))
 
 
+@st.cache_data(show_spinner=False)
 def _numbered_image_map():
     """Scan assets/ once and map: number -> list[Path] whose filename contains that number
-    (e.g. '3.jpg', 'image_3.jpg', 'property_3.png' all map to number 3)."""
+    (e.g. '3.jpg', 'image_3.jpg', 'property_3.png' all map to number 3).
+    Cached so this full-folder scan runs once per session instead of on every rerun
+    (every button click / filter change triggers a Streamlit rerun)."""
     mapping = {}
     if not ASSETS.exists():
         return mapping
@@ -399,17 +402,28 @@ def svg_placeholder(prop, index=0):
     return "data:image/svg+xml;base64," + base64.b64encode(svg.encode()).decode()
 
 
+@st.cache_data(show_spinner=False)
+def _read_and_encode_image(path_str: str, mtime: float) -> str:
+    """يقرأ الصورة ويحوّلها base64 مرة واحدة فقط، ثم يخزّن الناتج مؤقتًا (cache).
+    بدون هذا الـ cache كانت كل صورة (رئيسية + كل صورة مصغّرة) تُقرأ من القرص
+    وتُحوَّل base64 من جديد مع كل rerun — أي مع كل ضغطة زر بالتطبيق — وهذا
+    كان سبب البطء الملحوظ عند فتح بطاقة تفاصيل العقار. مُعامل mtime يجعل
+    الكاش يتحدّث تلقائيًا لو تغيّر ملف الصورة على القرص."""
+    p = Path(path_str)
+    ext = p.suffix.lower().replace(".", "") or "jpeg"
+    if ext == "jpg":
+        ext = "jpeg"
+    return f"data:image/{ext};base64," + base64.b64encode(p.read_bytes()).decode()
+
+
 def img_src(path_or_uri):
     """Convert a local file path to a base64 data URI (needed for raw HTML rendering).
     Data URIs / already-encoded strings pass through unchanged."""
     if path_or_uri.startswith("data:"):
         return path_or_uri
     p = Path(path_or_uri)
-    ext = p.suffix.lower().replace(".", "") or "jpeg"
-    if ext == "jpg":
-        ext = "jpeg"
     try:
-        return f"data:image/{ext};base64," + base64.b64encode(p.read_bytes()).decode()
+        return _read_and_encode_image(str(p), p.stat().st_mtime)
     except Exception:
         return path_or_uri
 
@@ -479,10 +493,16 @@ logo_candidates = [
 logo_path = next((p for p in logo_candidates if p.exists()), None)
 
 
+@st.cache_data(show_spinner=False)
+def _encode_logo(path_str: str) -> str:
+    p = Path(path_str)
+    ext = p.suffix.lower().replace(".", "") or "png"
+    return f'data:image/{ext};base64,{base64.b64encode(p.read_bytes()).decode()}'
+
+
 def logo_html():
     if logo_path:
-        ext = logo_path.suffix.lower().replace(".", "") or "png"
-        return f'<img class="brand-logo" src="data:image/{ext};base64,{base64.b64encode(logo_path.read_bytes()).decode()}">'
+        return f'<img class="brand-logo" src="{_encode_logo(str(logo_path))}">'
     return '<div class="brand-mark">⌂</div>'
 
 
@@ -499,9 +519,16 @@ if ASSETS.exists():
     # the most recently modified one wins instead of an arbitrary filesystem order.
     hero_candidates.sort(key=lambda p: p.stat().st_mtime, reverse=True)
 hero_path = hero_candidates[0] if hero_candidates else None
+
+
+@st.cache_data(show_spinner=False)
+def _encode_hero(path_str: str) -> str:
+    return base64.b64encode(Path(path_str).read_bytes()).decode()
+
+
 hero_style = ""
 if hero_path:
-    hero_b64 = base64.b64encode(hero_path.read_bytes()).decode()
+    hero_b64 = _encode_hero(str(hero_path))
     hero_style = f"background-image:linear-gradient(100deg,rgba(5,25,22,.90) 5%,rgba(8,99,90,.55) 60%,rgba(0,222,186,.28) 100%),url(data:image/{hero_path.suffix[1:]};base64,{hero_b64});"
 
 # ============================================================
@@ -627,7 +654,7 @@ except TypeError:
 with _topbar_ctx:
     b_col, n1, n2, n3, n4, spacer, a1, a2 = st.columns([2.9, 0.85, 1.05, 1.05, 1.05, 1.1, 1.15, 1.25])
     with b_col:
-        st.markdown(f'<div class="brand">{logo_html()}<div><div class="brand-title">مستكشف</div><div class="brand-sub">اكتشف عقارات  بسهولة وذكاء</div></div></div>', unsafe_allow_html=True)
+        st.markdown(f'<div class="brand">{logo_html()}<div><div class="brand-title">مستكشف</div><div class="brand-sub">اكتشف عقارات بسهولة وذكاء</div></div></div>', unsafe_allow_html=True)
     nav_items = [
         (n1, "home", "الرئيسية"),
         (n2, "favorites", f"المفضلة {len(st.session_state.favorites) if st.session_state.favorites else ''}".strip()),
