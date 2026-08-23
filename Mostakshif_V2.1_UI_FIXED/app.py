@@ -654,7 +654,7 @@ except TypeError:
 with _topbar_ctx:
     b_col, n1, n2, n3, n4, spacer, a1, a2 = st.columns([2.9, 0.85, 1.05, 1.05, 1.05, 1.1, 1.15, 1.25])
     with b_col:
-        st.markdown(f'<div class="brand">{logo_html()}<div><div class="brand-title">مستكشف</div><div class="brand-sub">اكتشف عقارات بسهولة وذكاء</div></div></div>', unsafe_allow_html=True)
+        st.markdown(f'<div class="brand">{logo_html()}<div><div class="brand-title">مستكشف</div><div class="brand-sub">اكتشف عقارات • بسهولة وذكاء</div></div></div>', unsafe_allow_html=True)
     nav_items = [
         (n1, "home", "الرئيسية"),
         (n2, "favorites", f"المفضلة {len(st.session_state.favorites) if st.session_state.favorites else ''}".strip()),
@@ -1065,7 +1065,7 @@ class DistanceControl(MacroElement):
 # ---- Right: sticky map + selected-property detail ----
 with map_col:
     st.markdown('<div class="map-wrap">', unsafe_allow_html=True)
-    st.markdown('<div class="map-caption">🗺️ اضغط على أي عقار على الخريطة لتحديد بطاقته. استخدم «📍» لتحديد موقعك مرة واحدة وحساب المسافة تلقائيًا. يمكنك تبديل نمط الخريطة من أداة الطبقات أعلى يمين الخريطة.</div>', unsafe_allow_html=True)
+    st.markdown('<div class="map-caption">🗺️ اضغط على أي عقار على الخريطة لتحديد بطاقته. استخدم «📍» لتحديد موقعك مرة واحدة وحساب المسافة تلقائيًا.</div>', unsafe_allow_html=True)
 
     if st.session_state.selected_id is not None:
         selected_rows = filtered[filtered.id == int(st.session_state.selected_id)]
@@ -1076,14 +1076,10 @@ with map_col:
     if len(filtered) > 1:
         center = [float(filtered.lat.mean()), float(filtered.lon.mean())]
 
-    # لا نمرر tiles مباشرة في المُنشئ حتى نضيف الطبقتين معًا مع أداة تبديل
-    # (LayerControl) — هذا يخلي المستخدم يقارن بنفسه بين خريطة الشوارع
-    # (OpenStreetMap، أوضح بأسماء الشوارع) وبين الخريطة الفاتحة (CartoDB
-    # Positron، أنعم بصريًا).
-    m = folium.Map(location=center, zoom_start=12, tiles=None, control_scale=True, prefer_canvas=True)
-    folium.TileLayer("OpenStreetMap", name="🗺️ خريطة الشوارع", overlay=False, control=True, show=True).add_to(m)
-    folium.TileLayer("CartoDB positron", name="🏙️ الخريطة الفاتحة", overlay=False, control=True, show=False).add_to(m)
-    folium.LayerControl(position="topright", collapsed=False).add_to(m)
+    # خريطة بطبقة واحدة فقط (OpenStreetMap — أوضح بأسماء الشوارع) بدون
+    # LayerControl أو طبقة ثانية، لتخفيف الحمل على كل rerun (كل ضغطة زر
+    # بالتطبيق تعيد بناء الخريطة بالكامل من الصفر).
+    m = folium.Map(location=center, zoom_start=12, tiles="OpenStreetMap", control_scale=True, prefer_canvas=True)
     Fullscreen(position="topleft").add_to(m)
     DistanceControl(selected_for_map.lat, selected_for_map.lon, int(selected_for_map.id), f"{selected_for_map.type} — {selected_for_map.district}").add_to(m)
 
