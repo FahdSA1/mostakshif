@@ -3,6 +3,7 @@
 
 import base64
 import html
+import io
 import math
 import random
 from pathlib import Path
@@ -14,6 +15,7 @@ import streamlit as st
 import streamlit.components.v1 as components
 from branca.element import MacroElement, Template
 from folium.plugins import Fullscreen
+from PIL import Image
 from streamlit_folium import st_folium
 
 st.set_page_config(
@@ -403,27 +405,46 @@ def svg_placeholder(prop, index=0):
 
 
 @st.cache_data(show_spinner=False)
-def _read_and_encode_image(path_str: str, mtime: float) -> str:
-    """يقرأ الصورة ويحوّلها base64 مرة واحدة فقط، ثم يخزّن الناتج مؤقتًا (cache).
-    بدون هذا الـ cache كانت كل صورة (رئيسية + كل صورة مصغّرة) تُقرأ من القرص
-    وتُحوَّل base64 من جديد مع كل rerun — أي مع كل ضغطة زر بالتطبيق — وهذا
-    كان سبب البطء الملحوظ عند فتح بطاقة تفاصيل العقار. مُعامل mtime يجعل
-    الكاش يتحدّث تلقائيًا لو تغيّر ملف الصورة على القرص."""
+def _read_and_encode_image(path_str: str, mtime: float, max_width: int = 1100, quality: int = 78) -> str:
+    """يقرأ الصورة، **يصغّرها فعليًا** (أبعاد + ضغط JPEG) ثم يحوّلها base64،
+    ويخزّن الناتج مؤقتًا (cache). هذا هو الإصلاح الحقيقي لبطء التبديل بين
+    العقارات: الصور الأصلية بمجلد assets قد تكون بدقة عالية جدًا (عدة
+    ميجابايت للصورة الواحدة)، وكانت تُضمَّن بحجمها الكامل داخل HTML الصفحة
+    مع كل اختيار عقار — يعني عدة ميجابايت تنتقل للمتصفح مع كل تبديل، وهذا
+    كان يبطّئ التبديل السريع بشكل ملموس (الـ cache وحده يوفر وقت المعالجة
+    على السيرفر بس ما يقلل حجم البيانات المنقولة). max_width أصغر
+    للصور المصغّرة (thumbnails) يقلل الحجم أكثر لأنها تُعرض صغيرة أصلًا.
+    مُعامل mtime يجعل الكاش يتحدّث تلقائيًا لو تغيّر ملف الصورة على القرص."""
     p = Path(path_str)
-    ext = p.suffix.lower().replace(".", "") or "jpeg"
-    if ext == "jpg":
-        ext = "jpeg"
-    return f"data:image/{ext};base64," + base64.b64encode(p.read_bytes()).decode()
+    try:
+        img = Image.open(p)
+        if img.mode not in ("RGB", "L"):
+            img = img.convert("RGB")
+        if img.width > max_width:
+            new_height = int(img.height * (max_width / img.width))
+            img = img.resize((max_width, new_height), Image.LANCZOS)
+        buf = io.BytesIO()
+        img.save(buf, format="JPEG", quality=quality, optimize=True)
+        return "data:image/jpeg;base64," + base64.b64encode(buf.getvalue()).decode()
+    except Exception:
+        # فشل التصغير لأي سبب (صيغة غير مدعومة، ملف تالف...) — رجوع للسلوك
+        # الأصلي (تحويل الملف الخام) بدل ما تختفي الصورة بالكامل.
+        ext = p.suffix.lower().replace(".", "") or "jpeg"
+        if ext == "jpg":
+            ext = "jpeg"
+        return f"data:image/{ext};base64," + base64.b64encode(p.read_bytes()).decode()
 
 
-def img_src(path_or_uri):
+def img_src(path_or_uri, thumb=False):
     """Convert a local file path to a base64 data URI (needed for raw HTML rendering).
-    Data URIs / already-encoded strings pass through unchanged."""
+    Data URIs / already-encoded strings pass through unchanged.
+    thumb=True يستخدم عرضًا أصغر (300px) مناسب للصور المصغّرة بالمعرض."""
     if path_or_uri.startswith("data:"):
         return path_or_uri
     p = Path(path_or_uri)
     try:
-        return _read_and_encode_image(str(p), p.stat().st_mtime)
+        max_width = 300 if thumb else 1100
+        return _read_and_encode_image(str(p), p.stat().st_mtime, max_width=max_width)
     except Exception:
         return path_or_uri
 
@@ -1174,7 +1195,7 @@ def render_home_map_section():
                     thumbs_html = '<div style="display:flex;flex-wrap:wrap;justify-content:center;gap:10px;margin:2px 0 6px">'
                     for i, im in enumerate(images):
                         active_cls = " active" if i == gidx else ""
-                        thumbs_html += f'<div class="thumb{active_cls}"><img src="{img_src(im)}" loading="lazy"></div>'
+                        thumbs_html += f'<div class="thumb{active_cls}"><img src="{img_src(im, thumb=True)}" loading="lazy"></div>'
                     thumbs_html += '</div>'
                     st.markdown(thumbs_html, unsafe_allow_html=True)
 
