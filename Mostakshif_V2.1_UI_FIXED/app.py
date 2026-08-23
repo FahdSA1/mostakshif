@@ -675,7 +675,7 @@ except TypeError:
 with _topbar_ctx:
     b_col, n1, n2, n3, n4, spacer, a1, a2 = st.columns([2.9, 0.85, 1.05, 1.05, 1.05, 1.1, 1.15, 1.25])
     with b_col:
-        st.markdown(f'<div class="brand">{logo_html()}<div><div class="brand-title">مستكشف</div><div class="brand-sub">اكتشف عقارات • بسهولة وذكاء</div></div></div>', unsafe_allow_html=True)
+        st.markdown(f'<div class="brand">{logo_html()}<div><div class="brand-title">مستكشف</div><div class="brand-sub">اكتشف عقارات  بسهولة وذكاء</div></div></div>', unsafe_allow_html=True)
     nav_items = [
         (n1, "home", "الرئيسية"),
         (n2, "favorites", f"المفضلة {len(st.session_state.favorites) if st.session_state.favorites else ''}".strip()),
