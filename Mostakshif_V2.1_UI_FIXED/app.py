@@ -508,7 +508,7 @@ if hero_path:
 # State + query params
 # ============================================================
 DEFAULT_STATE = {
-    "selected_id": 10001,
+    "selected_id": None,  # لا يوجد عقار محدد افتراضيًا — المستخدم هو من يختار
     "favorites": set(),
     "reminders": set(),
     "page": 1,
@@ -830,9 +830,11 @@ else:
 if active == "favorites":
     filtered = filtered[filtered.id.isin(st.session_state.favorites)]
 
+# لا نختار عقارًا تلقائيًا بعد الفلترة — فقط نلغي التحديد الحالي إذا لم يعد
+# ضمن النتائج المفلترة (حتى لا تبقى بطاقة تفاصيل لعقار غير ظاهر بالقائمة).
 keep_once = st.session_state.pop("keep_selection_once", False)
-if not keep_once and not filtered.empty and st.session_state.selected_id not in set(filtered.id):
-    st.session_state.selected_id = int(filtered.iloc[0].id)
+if not keep_once and st.session_state.selected_id is not None and st.session_state.selected_id not in set(filtered.id):
+    st.session_state.selected_id = None
     st.session_state.gallery_index = 0
 
 PAGE_SIZE = 12
@@ -865,7 +867,7 @@ def render_property_card(p, compact=False):
     img = img_for(p, 0)
     photo_count = len(images_for_property(p))
     fav = "♥" if pid in st.session_state.favorites else "♡"
-    is_selected = pid == int(st.session_state.selected_id)
+    is_selected = st.session_state.selected_id is not None and pid == int(st.session_state.selected_id)
     dtext = f' • 📍 {p["distance_km"]:.1f} كم من موقعك' if pd.notna(p.get("distance_km")) else ""
     card_cls = "property-card is-selected" if (compact and is_selected) else "property-card"
     st.markdown(f'<div class="{card_cls}">', unsafe_allow_html=True)
@@ -1036,20 +1038,30 @@ class DistanceControl(MacroElement):
 # ---- Right: sticky map + selected-property detail ----
 with map_col:
     st.markdown('<div class="map-wrap">', unsafe_allow_html=True)
-    st.markdown('<div class="map-caption">🗺️ اضغط على أي عقار على الخريطة لتحديد بطاقته. استخدم «📍» لتحديد موقعك مرة واحدة وحساب المسافة تلقائيًا.</div>', unsafe_allow_html=True)
+    st.markdown('<div class="map-caption">🗺️ اضغط على أي عقار على الخريطة لتحديد بطاقته. استخدم «📍» لتحديد موقعك مرة واحدة وحساب المسافة تلقائيًا. يمكنك تبديل نمط الخريطة من أداة الطبقات أعلى يمين الخريطة.</div>', unsafe_allow_html=True)
 
-    selected_rows = filtered[filtered.id == int(st.session_state.selected_id)]
+    if st.session_state.selected_id is not None:
+        selected_rows = filtered[filtered.id == int(st.session_state.selected_id)]
+    else:
+        selected_rows = pd.DataFrame()
     selected_for_map = selected_rows.iloc[0] if not selected_rows.empty else filtered.iloc[0]
     center = [24.744, 46.68]
     if len(filtered) > 1:
         center = [float(filtered.lat.mean()), float(filtered.lon.mean())]
-    m = folium.Map(location=center, zoom_start=12, tiles="CartoDB positron", control_scale=True, prefer_canvas=True)
-    folium.TileLayer("CartoDB positron", name="الخريطة الفاتحة", overlay=False, control=True).add_to(m)
+
+    # لا نمرر tiles مباشرة في المُنشئ حتى نضيف الطبقتين معًا مع أداة تبديل
+    # (LayerControl) — هذا يخلي المستخدم يقارن بنفسه بين خريطة الشوارع
+    # (OpenStreetMap، أوضح بأسماء الشوارع) وبين الخريطة الفاتحة (CartoDB
+    # Positron، أنعم بصريًا).
+    m = folium.Map(location=center, zoom_start=12, tiles=None, control_scale=True, prefer_canvas=True)
+    folium.TileLayer("OpenStreetMap", name="🗺️ خريطة الشوارع", overlay=False, control=True, show=True).add_to(m)
+    folium.TileLayer("CartoDB positron", name="🏙️ الخريطة الفاتحة", overlay=False, control=True, show=False).add_to(m)
+    folium.LayerControl(position="topright", collapsed=False).add_to(m)
     Fullscreen(position="topleft").add_to(m)
     DistanceControl(selected_for_map.lat, selected_for_map.lon, int(selected_for_map.id), f"{selected_for_map.type} — {selected_for_map.district}").add_to(m)
 
     for _, p in filtered.iterrows():
-        selected = int(p.id) == int(st.session_state.selected_id)
+        selected = st.session_state.selected_id is not None and int(p.id) == int(st.session_state.selected_id)
         popup = f'''<div dir="rtl" style="font-family:Arial;text-align:right;min-width:230px;line-height:1.8">
         <b>{html.escape(p.category)} • {html.escape(p.type)} — {html.escape(p.district)}</b><br>
         <span style="color:#08635a;font-size:18px;font-weight:bold">{p.price:,} ريال</span><br>
@@ -1086,109 +1098,115 @@ with map_col:
     st.markdown('</div>', unsafe_allow_html=True)
 
     # ---- Selected property detail, right under the map ----
-    rows = df[df.id == int(st.session_state.selected_id)]
-    if rows.empty and not filtered.empty:
-        rows = filtered.head(1)
-    if not rows.empty:
-        p = rows.iloc[0].to_dict()
-        pid = int(p["id"])
-
-        if st.session_state.gallery_property != pid:
-            st.session_state.gallery_property = pid
-            st.session_state.gallery_index = 0
-
-        images = images_for_property(p)
-        gidx = st.session_state.gallery_index % len(images)
-
-        st.markdown('<div class="detail-card">', unsafe_allow_html=True)
-        st.markdown('<div class="gallery-wrap">', unsafe_allow_html=True)
-        main_src = img_src(images[gidx])
+    if st.session_state.selected_id is None:
         st.markdown(
-            f'''<div class="gallery-main">
-                <img src="{main_src}">
-                <div class="gallery-badge">{badge(p)}</div>
-                <div class="gallery-counter">📷 {gidx+1} / {len(images)}</div>
-            </div>''',
+            '<div class="empty-state"><div class="icon">🏠</div>'
+            'اختر عقارًا من القائمة أو اضغط على أي علامة بالخريطة لعرض تفاصيله هنا.'
+            '</div>',
             unsafe_allow_html=True,
         )
-        if len(images) > 1:
-            nav_prev, nav_label, nav_next = st.columns([1, 2, 1])
-            with nav_prev:
-                if st.button("‹ السابق", key=f"gal_prev_{pid}", use_container_width=True):
-                    st.session_state.gallery_index = (gidx - 1) % len(images)
-                    st.rerun()
-            with nav_label:
-                st.markdown(f'<div style="text-align:center;padding-top:9px;font-size:11px;color:var(--muted);font-weight:700">معرض الصور • صورة {gidx+1} من {len(images)}</div>', unsafe_allow_html=True)
-            with nav_next:
-                if st.button("التالي ›", key=f"gal_next_{pid}", use_container_width=True):
-                    st.session_state.gallery_index = (gidx + 1) % len(images)
-                    st.rerun()
+    else:
+        rows = df[df.id == int(st.session_state.selected_id)]
+        if not rows.empty:
+            p = rows.iloc[0].to_dict()
+            pid = int(p["id"])
 
-            thumbs_html = '<div style="display:flex;flex-wrap:wrap;justify-content:center;gap:10px;margin:2px 0 6px">'
-            for i, im in enumerate(images):
-                active_cls = " active" if i == gidx else ""
-                thumbs_html += f'<div class="thumb{active_cls}"><img src="{img_src(im)}" loading="lazy"></div>'
-            thumbs_html += '</div>'
-            st.markdown(thumbs_html, unsafe_allow_html=True)
+            if st.session_state.gallery_property != pid:
+                st.session_state.gallery_property = pid
+                st.session_state.gallery_index = 0
 
-            thumb_cols = st.columns(len(images))
-            for i, tcol in enumerate(thumb_cols):
-                with tcol:
-                    if st.button(f"صورة {i+1}", key=f"thumb_{pid}_{i}", use_container_width=True, type=("primary" if i == gidx else "secondary")):
-                        st.session_state.gallery_index = i
+            images = images_for_property(p)
+            gidx = st.session_state.gallery_index % len(images)
+
+            st.markdown('<div class="detail-card">', unsafe_allow_html=True)
+            st.markdown('<div class="gallery-wrap">', unsafe_allow_html=True)
+            main_src = img_src(images[gidx])
+            st.markdown(
+                f'''<div class="gallery-main">
+                    <img src="{main_src}">
+                    <div class="gallery-badge">{badge(p)}</div>
+                    <div class="gallery-counter">📷 {gidx+1} / {len(images)}</div>
+                </div>''',
+                unsafe_allow_html=True,
+            )
+            if len(images) > 1:
+                nav_prev, nav_label, nav_next = st.columns([1, 2, 1])
+                with nav_prev:
+                    if st.button("‹ السابق", key=f"gal_prev_{pid}", use_container_width=True):
+                        st.session_state.gallery_index = (gidx - 1) % len(images)
                         st.rerun()
-        st.markdown('</div>', unsafe_allow_html=True)
+                with nav_label:
+                    st.markdown(f'<div style="text-align:center;padding-top:9px;font-size:11px;color:var(--muted);font-weight:700">معرض الصور • صورة {gidx+1} من {len(images)}</div>', unsafe_allow_html=True)
+                with nav_next:
+                    if st.button("التالي ›", key=f"gal_next_{pid}", use_container_width=True):
+                        st.session_state.gallery_index = (gidx + 1) % len(images)
+                        st.rerun()
 
-        st.markdown('<div class="detail-body">', unsafe_allow_html=True)
-        st.markdown(f'<div class="detail-title">{html.escape(p["type"])} — {html.escape(p["district"])}</div>', unsafe_allow_html=True)
-        st.markdown(f'<div class="detail-price">{p["price"]:,} ريال</div>', unsafe_allow_html=True)
-        st.markdown(f'<div class="detail-location">📍 الرياض — حي {html.escape(p["district"])}</div>', unsafe_allow_html=True)
-        st.markdown(f'<div style="font-size:11px;color:#7b878d">إعلان #{pid} • 👁 {p["views"]:,} مشاهدة</div>', unsafe_allow_html=True)
-        st.markdown(f'''<div class="stats"><div class="stat"><b>{p["beds"]}</b><span>غرف نوم</span></div><div class="stat"><b>{p["baths"]}</b><span>دورات مياه</span></div><div class="stat"><b>{p["area"]}</b><span>م²</span></div><div class="stat"><b>{p["age"]}</b><span>سنوات</span></div></div>''', unsafe_allow_html=True)
+                thumbs_html = '<div style="display:flex;flex-wrap:wrap;justify-content:center;gap:10px;margin:2px 0 6px">'
+                for i, im in enumerate(images):
+                    active_cls = " active" if i == gidx else ""
+                    thumbs_html += f'<div class="thumb{active_cls}"><img src="{img_src(im)}" loading="lazy"></div>'
+                thumbs_html += '</div>'
+                st.markdown(thumbs_html, unsafe_allow_html=True)
 
-        extra = EXTRA_INFO.get(pid)
-        if extra:
-            if "contract_remaining" in extra:
-                st.markdown(f'<div class="detail-extra">📄 {html.escape(extra["contract_remaining"])}</div>', unsafe_allow_html=True)
-            if "available_from" in extra:
-                st.markdown(f'<div class="detail-extra">🗓️ {html.escape(extra["available_from"])}</div>', unsafe_allow_html=True)
+                thumb_cols = st.columns(len(images))
+                for i, tcol in enumerate(thumb_cols):
+                    with tcol:
+                        if st.button(f"صورة {i+1}", key=f"thumb_{pid}_{i}", use_container_width=True, type=("primary" if i == gidx else "secondary")):
+                            st.session_state.gallery_index = i
+                            st.rerun()
+            st.markdown('</div>', unsafe_allow_html=True)
 
-        if st.session_state.user_lat is not None and st.session_state.user_lon is not None:
-            dist = haversine_km(st.session_state.user_lat, st.session_state.user_lon, p["lat"], p["lon"])
-            st.markdown(f'<div style="margin:10px 0;padding:10px;border-radius:12px;background:#eaf7f1;color:var(--primary-dark);font-weight:800;text-align:center">📍 يبعد العقار عن موقعك {dist:.2f} كم</div>', unsafe_allow_html=True)
+            st.markdown('<div class="detail-body">', unsafe_allow_html=True)
+            st.markdown(f'<div class="detail-title">{html.escape(p["type"])} — {html.escape(p["district"])}</div>', unsafe_allow_html=True)
+            st.markdown(f'<div class="detail-price">{p["price"]:,} ريال</div>', unsafe_allow_html=True)
+            st.markdown(f'<div class="detail-location">📍 الرياض — حي {html.escape(p["district"])}</div>', unsafe_allow_html=True)
+            st.markdown(f'<div style="font-size:11px;color:#7b878d">إعلان #{pid} • 👁 {p["views"]:,} مشاهدة</div>', unsafe_allow_html=True)
+            st.markdown(f'''<div class="stats"><div class="stat"><b>{p["beds"]}</b><span>غرف نوم</span></div><div class="stat"><b>{p["baths"]}</b><span>دورات مياه</span></div><div class="stat"><b>{p["area"]}</b><span>م²</span></div><div class="stat"><b>{p["age"]}</b><span>سنوات</span></div></div>''', unsafe_allow_html=True)
 
-        if p["status"] == "متاح قريبًا":
-            is_on = pid in st.session_state.reminders
-            rlabel = "🔕 إلغاء التذكير" if is_on else "🔔 ذكرني عند التوفر"
-            if st.button(rlabel, key=f"detail_rem_{pid}", use_container_width=True):
-                toggle_reminder(pid)
-                st.rerun()
-            if is_on:
-                st.markdown('<div class="reminder-tag">✓ سنقوم بتنبيهك فور توفر هذا العقار</div>', unsafe_allow_html=True)
+            extra = EXTRA_INFO.get(pid)
+            if extra:
+                if "contract_remaining" in extra:
+                    st.markdown(f'<div class="detail-extra">📄 {html.escape(extra["contract_remaining"])}</div>', unsafe_allow_html=True)
+                if "available_from" in extra:
+                    st.markdown(f'<div class="detail-extra">🗓️ {html.escape(extra["available_from"])}</div>', unsafe_allow_html=True)
 
-        b1, b2 = st.columns(2)
-        with b1:
-            st.link_button("☎️ اتصال بالمالك", "tel:0551234567", use_container_width=True)
-        with b2:
-            msg = quote(f"السلام عليكم، أرغب بالاستفسار عن العقار {p['type']} في حي {p['district']} بسعر {p['price']:,} ريال — رقم الإعلان #{pid}")
-            st.link_button("💬 واتساب", f"https://wa.me/966551234567?text={msg}", use_container_width=True)
+            if st.session_state.user_lat is not None and st.session_state.user_lon is not None:
+                dist = haversine_km(st.session_state.user_lat, st.session_state.user_lon, p["lat"], p["lon"])
+                st.markdown(f'<div style="margin:10px 0;padding:10px;border-radius:12px;background:#eaf7f1;color:var(--primary-dark);font-weight:800;text-align:center">📍 يبعد العقار عن موقعك {dist:.2f} كم</div>', unsafe_allow_html=True)
 
-        b3, b4 = st.columns(2)
-        with b3:
-            fav_text = "♥ إزالة من المفضلة" if pid in st.session_state.favorites else "♡ حفظ العقار"
-            if st.button(fav_text, key="detail_fav", use_container_width=True):
-                toggle_favorite(pid)
-                st.rerun()
-        with b4:
-            st.link_button("🧭 فتح الموقع", f"https://www.google.com/maps/search/?api=1&query={p['lat']},{p['lon']}", use_container_width=True)
+            if p["status"] == "متاح قريبًا":
+                is_on = pid in st.session_state.reminders
+                rlabel = "🔕 إلغاء التذكير" if is_on else "🔔 ذكرني عند التوفر"
+                if st.button(rlabel, key=f"detail_rem_{pid}", use_container_width=True):
+                    toggle_reminder(pid)
+                    st.rerun()
+                if is_on:
+                    st.markdown('<div class="reminder-tag">✓ سنقوم بتنبيهك فور توفر هذا العقار</div>', unsafe_allow_html=True)
 
-        share_url = f"?view=map&property={pid}"
-        st.markdown('<div style="height:7px"></div><b>مشاركة العقار</b>', unsafe_allow_html=True)
-        components.html(
-            f'''<div dir="rtl" style="font-family:Arial;display:flex;gap:7px;margin-top:6px"><input id="share_{pid}" value="{share_url}" style="flex:1;padding:10px;border:1px solid #ddd;border-radius:10px;font-family:Arial" readonly><button onclick="navigator.clipboard.writeText(window.parent.location.origin+'{share_url}');this.innerText='تم النسخ ✓'" style="padding:10px 15px;border:0;border-radius:10px;background:#08635a;color:#fff;font-weight:bold;cursor:pointer">نسخ الرابط</button></div>''',
-            height=55,
-        )
-        st.markdown('</div></div>', unsafe_allow_html=True)
+            b1, b2 = st.columns(2)
+            with b1:
+                st.link_button("☎️ اتصال بالمالك", "tel:0551234567", use_container_width=True)
+            with b2:
+                msg = quote(f"السلام عليكم، أرغب بالاستفسار عن العقار {p['type']} في حي {p['district']} بسعر {p['price']:,} ريال — رقم الإعلان #{pid}")
+                st.link_button("💬 واتساب", f"https://wa.me/966551234567?text={msg}", use_container_width=True)
+
+            b3, b4 = st.columns(2)
+            with b3:
+                fav_text = "♥ إزالة من المفضلة" if pid in st.session_state.favorites else "♡ حفظ العقار"
+                if st.button(fav_text, key="detail_fav", use_container_width=True):
+                    toggle_favorite(pid)
+                    st.rerun()
+            with b4:
+                st.link_button("🧭 فتح الموقع", f"https://www.google.com/maps/search/?api=1&query={p['lat']},{p['lon']}", use_container_width=True)
+
+            share_url = f"?view=map&property={pid}"
+            st.markdown('<div style="height:7px"></div><b>مشاركة العقار</b>', unsafe_allow_html=True)
+            components.html(
+                f'''<div dir="rtl" style="font-family:Arial;display:flex;gap:7px;margin-top:6px"><input id="share_{pid}" value="{share_url}" style="flex:1;padding:10px;border:1px solid #ddd;border-radius:10px;font-family:Arial" readonly><button onclick="navigator.clipboard.writeText(window.parent.location.origin+'{share_url}');this.innerText='تم النسخ ✓'" style="padding:10px 15px;border:0;border-radius:10px;background:#08635a;color:#fff;font-weight:bold;cursor:pointer">نسخ الرابط</button></div>''',
+                height=55,
+            )
+            st.markdown('</div></div>', unsafe_allow_html=True)
 
 # ============================================================
 # Footer
